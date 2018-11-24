@@ -2,7 +2,7 @@
 
 require 'fileutils'
 
-# deal with command line arguments
+# parse command line arguments
 
 require 'optparse'
 
@@ -50,19 +50,21 @@ OptionParser.new do |opts|
 
 end.parse!
 
-entries = Dir.children( options[:source_directory] )
+# end parse command line arguments
 
 codec = options[:codec]
+target_dir = options[:target_directory]
+source_dir = options[:source_directory]
+
+# get source files list
+entries = Dir.children( options[:source_directory] )
 
 #
-# remove entries that do not have .flac extension and do not overwrite the target file
+# remove entries that do not have .flac extension, do not overwrite the target file
 #
 entries = entries.reject { |e| !e.include?('.flac') }
 
 puts "Processing #{ entries.count } files"
-
-target_dir = options[:target_directory]
-source_dir = options[:source_directory]
 
 #
 # make the target directory if it does not already exist
@@ -71,31 +73,34 @@ Dir.mkdir target_dir unless Dir.exist?(target_dir)
 
 errors = []
 
+# loop through source files
 entries.each do |source_file|
   
   source_file_path = File.join(source_dir, source_file)
   
-  new_file_name = source_file.gsub('.flac', ".#{ codec }")
+  # new file name will be source file with .flac extension swapped out for . + codec eg .mp3
+  new_file_name = source_file.gsub('.flac', ".#{ codec }") 
   
   target_file = File.join(target_dir, new_file_name)
 
-  if File.exists?(target_file) # jump to next 
-    next
+  if File.exists?(target_file) 
+    next # jump to next file
     errors << "Target file already exists: #{ target_file }"
   end
 
   if !File.exists?(source_file_path)
-    next
+    next # jump to next file
     errors << "Source file does not exist: #{ source_file_path }"
   end
 
-  #
-  # execute the conversion
-  #
   if !File.exists?(new_file_name)
     
+    # setup the ffmpeg command as a string
     cmd = %{ ffmpeg -i "#{ source_file_path }" -write_id3v1 1 -map_metadata 0 -id3v2_version 3 -acodec #{ codec } -ac #{ options[:audio_channels] } -ar #{ options[:sample_rate] } -ab #{ options[:bit_rate] }  "#{ new_file_name }" }
-
+    
+    #
+    # execute the conversion
+    #
     result = system(cmd)
 
     unless result
@@ -106,11 +111,13 @@ entries.each do |source_file|
   #
   # move converted file to target directory    
   #
-
   FileUtils.mv("#{ new_file_name }", "#{ target_file }") if File.exists? new_file_name
   
 end
 
+# 
+# delete the source files after conversion
+#
 if options[:delete_source_file_after_conversion]
   entries.each do |source_file|
     source_file_path = File.join(source_dir, source_file)
@@ -122,8 +129,10 @@ if errors.empty?
   puts "Conversion finished!"
 else
   puts "Conversion finished, but there were errors:"
+  #
+  # list all errors
+  #
   errors.each do |err|
     puts err
   end
 end
-
