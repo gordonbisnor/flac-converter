@@ -1,0 +1,129 @@
+#!/usr/bin/env ruby
+
+require 'fileutils'
+
+# deal with command line arguments
+
+require 'optparse'
+
+options = {
+  codec: "mp3", 
+  source_directory: './', 
+  target_directory: "./converted_files",
+  sample_rate: 44100,
+  bit_rate: "320k",
+  audio_channels: 2,
+  delete_source_file_after_conversion: false
+}
+
+OptionParser.new do |opts|
+
+  opts.banner = "Usage: flac-converter.rb [options]"
+
+  opts.on("-sSOURCE_DIR", "--source-dir=SOURCE_DIR", "Source directory (default: current directory)" ) do |s|
+    options[:source_directory] = s
+  end
+
+  opts.on("-tTARGET_DIR", "--target-dir=TARGET_DIR", "Target directory (default: current directory + /converted_files)" ) do |t|
+    options[:target_directory] = t
+  end
+
+  opts.on("-cCODEC", "--codec=CODEC", "Specify the codec (default: mp3)" ) do |c|
+    options[:codec] = c
+  end
+
+  opts.on("-rSAMPLE_RATE", "--sample-rate=SAMPLE_RATE", "Specify the sample rate (default: 44100)" ) do |s|
+    options[:sample_rate] = s
+  end
+
+  opts.on("-bBIT_RATE", "--bit-rate=BIT_RATE", "Specify the bit rate (default: 320k)" ) do |b|
+    options[:bit_rate] = b
+  end
+
+  opts.on("-aAUDIO_CHANNELS", "--channels=AUDIO_CHANNELS", "Specify the audio channels (default: 2)" ) do |c|
+    options[:audio_channels] = c
+  end
+
+  opts.on("-d", "--delete", "Delete source file after conversion (default: false)" ) do |d|
+    options[:delete_source_file_after_conversion] = d 
+  end
+
+end.parse!
+
+entries = Dir.children( options[:source_directory] )
+
+codec = options[:codec]
+
+#
+# remove entries that do not have .flac extension and do not overwrite the target file
+#
+entries = entries.reject { |e| !e.include?('.flac') }
+
+puts "Processing #{ entries.count } files"
+
+target_dir = options[:target_directory]
+source_dir = options[:source_directory]
+
+#
+# make the target directory if it does not already exist
+#
+Dir.mkdir target_dir unless Dir.exist?(target_dir)
+
+errors = []
+
+entries.each do |source_file|
+  
+  source_file_path = File.join(source_dir, source_file)
+  
+  new_file_name = source_file.gsub('.flac', ".#{ codec }")
+  
+  target_file = File.join(target_dir, new_file_name)
+
+  if File.exists?(target_file) # jump to next 
+    next
+    errors << "Target file already exists: #{ target_file }"
+  end
+
+  if !File.exists?(source_file_path)
+    next
+    errors << "Source file does not exist: #{ source_file_path }"
+  end
+
+  #
+  # execute the conversion
+  #
+  if !File.exists?(new_file_name)
+    
+    cmd = %{ ffmpeg -i "#{ source_file_path }" -write_id3v1 1 -map_metadata 0 -id3v2_version 3 -acodec #{ codec } -ac #{ options[:audio_channels] } -ar #{ options[:sample_rate] } -ab #{ options[:bit_rate] }  "#{ new_file_name }" }
+
+    result = system(cmd)
+
+    unless result
+      errors << "Execution failed: #{ source_file_path }"
+    end
+  end
+  
+  #
+  # move converted file to target directory    
+  #
+
+  FileUtils.mv("#{ new_file_name }", "#{ target_file }") if File.exists? new_file_name
+  
+end
+
+if options[:delete_source_file_after_conversion]
+  entries.each do |source_file|
+    source_file_path = File.join(source_dir, source_file)
+    File.unlink(source_file_path) if File.exists?(source_file_path)
+  end
+end
+
+if errors.empty?
+  puts "Conversion finished!"
+else
+  puts "Conversion finished, but there were errors:"
+  errors.each do |err|
+    puts err
+  end
+end
+
